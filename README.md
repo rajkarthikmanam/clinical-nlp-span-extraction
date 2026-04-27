@@ -30,6 +30,7 @@ The repository now supports these paths directly:
 
 - keyword-style baseline based on feature text matching
 - feature-aware linear token classifier using logistic regression
+- tuned feature-constrained decoder for the linear model
 - BiLSTM sequence tagging baseline in PyTorch
 - transformer token classification workflow for ClinicalBERT-style models
 - optional LLM subset comparison using prompt-based span extraction
@@ -114,6 +115,18 @@ python train_nbme_linear.py \
   --output-dir artifacts/nbme-linear
 ```
 
+Train the tuned linear model with a stricter feature-neighborhood decoder:
+
+```bash
+python train_nbme_linear.py \
+  --train data/nbme/train.jsonl \
+  --valid data/nbme/valid.jsonl \
+  --output-dir artifacts/nbme-linear-tuned \
+  --max-iter 500 \
+  --candidate-window 1 \
+  --positive-threshold 0.55
+```
+
 Quick CPU smoke test:
 
 ```bash
@@ -154,6 +167,7 @@ This script is optional and only runs when `OPENAI_API_KEY` is available.
 - competition-style micro F1 at character span level
 - baseline prediction pipeline
 - linear token-classification baseline in scikit-learn
+- constrained decoding that turns the linear model into a stronger precision-balanced system
 - BiLSTM training pipeline in PyTorch
 - transformer training pipeline structure
 - optional LLM comparison scaffold
@@ -163,9 +177,12 @@ This script is optional and only runs when `OPENAI_API_KEY` is available.
 ## Current Results
 
 - keyword-style baseline validation F1: about `0.347`
-- linear token classifier full-run validation F1: about `0.187`
+- tuned linear token classifier validation F1: about `0.400`
+- unconstrained linear token classifier full-run validation F1: about `0.187`
 - BiLSTM full-run validation F1: about `0.075`
 - weighted DistilBERT smoke run validation F1: about `0.092`
+
+The tuned linear model improves sharply because the classifier already finds many relevant tokens, but raw decoding predicts too many positives. Restricting candidate positions to feature-word neighborhoods restores precision without throwing away all of the model's contextual signal.
 
 The current transformer result comes from a small CPU-friendly smoke configuration with `distilbert-base-uncased`, weighted loss, and positive-only training rows. It is meant to prove the full token-classification path works end to end. The next practical step is to run a stronger biomedical encoder on a longer schedule.
 
@@ -174,6 +191,7 @@ The current transformer result comes from a small CPU-friendly smoke configurati
 | Method | Split / setup | Precision | Recall | F1 |
 |---|---|---:|---:|---:|
 | Keyword baseline | prepared validation split | 0.497 | 0.267 | 0.347 |
+| Linear token classifier (tuned decoder) | full prepared split, balanced logistic regression, feature-neighborhood decoding | 0.403 | 0.397 | 0.400 |
 | Linear token classifier | full prepared split, class-weighted logistic regression | 0.110 | 0.647 | 0.187 |
 | Linear token classifier (positive-only train) | full prepared split, class-weighted logistic regression | 0.097 | 0.653 | 0.169 |
 | BiLSTM | full prepared split, 2 epochs | 0.039 | 0.857 | 0.075 |
@@ -182,7 +200,7 @@ The current transformer result comes from a small CPU-friendly smoke configurati
 This is a believable project story for class and portfolio use because it shows:
 
 - a simple baseline that is not trivial to beat
-- a classical feature-based model that improves over the deep baselines but still struggles with precision
+- a classical feature-based model that becomes the best overall system once decoding is tuned to the task
 - a first deep learning model that over-predicts spans
 - a transformer path that needed explicit imbalance handling to avoid all-`O` collapse
 
@@ -214,8 +232,8 @@ This project demonstrates more than a standard text classification workflow:
 ## Next Steps
 
 1. run a biomedical transformer on the full split
-2. tune the BiLSTM to reduce false positives
-3. compare baseline vs BiLSTM vs transformer in the result table
+2. add CRF-style or span-level decoding on top of the deep models
+3. tune the BiLSTM to reduce false positives
 4. optionally score a small validation subset with an LLM for comparison
 
 ## Testing

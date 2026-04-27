@@ -14,6 +14,7 @@ This file tracks the current project state for the class report and presentation
 | Method | Data scope | Main configuration | Precision | Recall | F1 |
 |---|---|---|---:|---:|---:|
 | Keyword baseline | full validation split | feature keyword matching | 0.497264 | 0.266662 | 0.347158 |
+| Linear token classifier (tuned decoder) | full prepared split | balanced logistic regression, feature-neighborhood decoder (`window=1`, `threshold=0.55`) | 0.402600 | 0.397303 | 0.399934 |
 | Linear token classifier | full prepared split | feature-aware logistic regression, balanced loss | 0.109523 | 0.647268 | 0.187346 |
 | Linear token classifier (positive-only) | full prepared split | feature-aware logistic regression, positive-only train | 0.097154 | 0.653440 | 0.169157 |
 | BiLSTM sequence tagger | full prepared split | 2 epochs, batch size 32 | 0.039358 | 0.857226 | 0.075260 |
@@ -21,10 +22,10 @@ This file tracks the current project state for the class report and presentation
 
 ## Interpretation
 
-- The keyword baseline is currently the strongest score because it is conservative and precise on direct lexical overlap.
-- The linear token classifier provides the strongest learned baseline so far and clearly outperforms the BiLSTM and smoke-scale transformer on F1.
+- The tuned linear decoder is now the best overall result and the first learned model to beat the keyword baseline.
+- The untuned linear classifier confirms the model had signal, but raw argmax decoding produced too many false positives.
 - The BiLSTM and smoke-transformer runs both recover many spans, but they currently over-predict and lose precision.
-- The main technical lesson so far is that NBME has strong class imbalance, so weighted loss or sampling strategy is necessary.
+- The main technical lesson so far is that NBME needs both imbalance handling and constrained decoding around plausible candidate spans.
 
 ## Qualitative Error Examples
 
@@ -63,9 +64,9 @@ This is the upside of the sequence model: it can connect broader semantics, but 
 
 ## Best Immediate Upgrade Path
 
-1. Run `Bio_ClinicalBERT` or another biomedical encoder on the full prepared split.
-2. Add a smaller learning rate sweep for the transformer.
-3. Reduce BiLSTM false positives with weaker positive weighting or post-processing.
+1. Add CRF-style or span-level decoding on top of the deep models.
+2. Run `Bio_ClinicalBERT` or another biomedical encoder on the full prepared split.
+3. Add a smaller learning rate sweep for the transformer.
 4. Add an optional zero-shot LLM comparison on `25-50` validation rows if API access is available.
 
 ## Presentation Note
@@ -73,7 +74,7 @@ This is the upside of the sequence model: it can connect broader semantics, but 
 For a course presentation, the clean story is:
 
 - the baseline establishes a strong lexical floor
-- the linear model shows that classical token-level features are a strong intermediate baseline
+- the tuned linear model becomes the best overall system after precision-aware decoding
 - the BiLSTM demonstrates that deep learning can recover broader context
 - the transformer smoke run proves the token-classification pipeline works end to end
-- class imbalance and span-boundary precision are the main reasons the learned models currently underperform
+- class imbalance and span-boundary precision are the main reasons the deep models currently underperform

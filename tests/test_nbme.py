@@ -1,4 +1,5 @@
 from clinical_nlp_span_extraction.nbme import build_bio_labels, parse_location_field, tokenize_with_offsets
+from clinical_nlp_span_extraction.nbme_linear import decode_labels_with_constraints
 from clinical_nlp_span_extraction.nbme_metrics import micro_f1_from_spans
 
 
@@ -16,3 +17,19 @@ def test_build_bio_labels_marks_overlapping_tokens() -> None:
 def test_char_level_micro_f1_is_exact() -> None:
     report = micro_f1_from_spans([[(0, 4)]], [[(0, 4)]])
     assert report["f1"] == 1.0
+
+
+def test_linear_decoder_limits_predictions_to_feature_neighborhood() -> None:
+    labels = decode_labels_with_constraints(
+        probabilities=[
+            [0.05, 0.90, 0.05],
+            [0.10, 0.15, 0.75],
+            [0.05, 0.90, 0.05],
+        ],
+        classes=["O", "B-SPAN", "I-SPAN"],
+        tokens=["severe", "chest", "pain"],
+        feature_words={"chest"},
+        candidate_window=0,
+        positive_threshold=0.55,
+    )
+    assert labels == ["O", "B-SPAN", "O"]

@@ -32,6 +32,18 @@ def parse_args() -> argparse.Namespace:
         help="Train only on examples containing at least one positive span.",
     )
     parser.add_argument("--max-iter", type=int, default=300, help="Maximum solver iterations.")
+    parser.add_argument(
+        "--candidate-window",
+        type=int,
+        default=1,
+        help="Only decode positive spans on feature-word tokens and this many neighboring tokens.",
+    )
+    parser.add_argument(
+        "--positive-threshold",
+        type=float,
+        default=0.55,
+        help="Minimum probability required to decode B-SPAN or I-SPAN.",
+    )
     return parser.parse_args()
 
 
@@ -88,15 +100,70 @@ def build_token_rows(rows: list[dict]) -> tuple[list[dict[str, object]], list[st
     return examples, labels
 
 
-def predict_spans_for_rows(model: Pipeline, rows: list[dict]) -> tuple[dict, list[dict]]:
+def decode_labels_with_constraints(
+    probabilities,
+    classes: list[str],
+    tokens: list[str],
+    feature_words: set[str],
+    candidate_window: int,
+    positive_threshold: float,
+) -> list[str]:
+    class_to_idx = {label: idx for idx, label in enumerate(classes)}
+    token_lowers = [token.lower() for token in tokens]
+    feature_positions = {index for index, token in enumerate(token_lowers) if token in feature_words}
+
+    allowed_positions: set[int] = set()
+    for position in feature_positions:
+        start = max(0, position - candidate_window)
+        end = min(len(tokens), position + candidate_window + 1)
+        allowed_positions.update(range(start, end))
+
+    decoded: list[str] = []
+    previous_label = "O"
+    for index, row_probs in enumerate(probabilities):
+        if index not in allowed_positions:
+            label = "O"
+        else:
+            b_prob = float(row_probs[class_to_idx["B-SPAN"]])
+            i_prob = float(row_probs[class_to_idx["I-SPAN"]])
+            if max(b_prob, i_prob) < positive_threshold:
+                label = "O"
+            elif b_prob >= i_prob:
+                label = "B-SPAN"
+            else:
+                label = "I-SPAN"
+
+        if label == "I-SPAN" and previous_label == "O":
+            label = "B-SPAN"
+        decoded.append(label)
+        previous_label = label if label != "O" else "O"
+
+    return decoded
+
+
+def predict_spans_for_rows(
+    model: Pipeline,
+    rows: list[dict],
+    candidate_window: int,
+    positive_threshold: float,
+) -> tuple[dict, list[dict]]:
     gold_spans = []
     pred_spans = []
     prediction_rows = []
+    classes = model.named_steps["classifier"].classes_.tolist()
 
     for row in rows:
         feature_words = normalize_feature_words(row["feature_text"])
         token_dicts = [token_features(row["tokens"], feature_words, index) for index in range(len(row["tokens"]))]
-        predicted_labels = model.predict(token_dicts).tolist()
+        probabilities = model.predict_proba(token_dicts)
+        predicted_labels = decode_labels_with_constraints(
+            probabilities=probabilities,
+            classes=classes,
+            tokens=row["tokens"],
+            feature_words=feature_words,
+            candidate_window=candidate_window,
+            positive_threshold=positive_threshold,
+        )
         spans = extract_spans_from_labels(row["tokens"], predicted_labels, row["note_text"])
         gold_spans.append([tuple(span) for span in row["spans"]])
         pred_spans.append(spans)
@@ -130,7 +197,12 @@ def main() -> None:
     )
     model.fit(train_x, train_y)
 
-    metrics, prediction_rows = predict_spans_for_rows(model, valid_rows)
+    metrics, prediction_rows = predict_spans_for_rows(
+        model,
+        valid_rows,
+        candidate_window=args.candidate_window,
+        positive_threshold=args.positive_threshold,
+    )
 
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -145,6 +217,8 @@ def main() -> None:
         "valid_rows": len(valid_rows),
         "positive_only": args.positive_only,
         "max_iter": args.max_iter,
+        "candidate_window": args.candidate_window,
+        "positive_threshold": args.positive_threshold,
         "metrics": metrics,
     }
     (output_dir / "run_summary.json").write_text(json.dumps(run_summary, indent=2), encoding="utf-8")
