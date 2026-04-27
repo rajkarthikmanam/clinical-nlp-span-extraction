@@ -28,11 +28,18 @@ def main() -> None:
 
     gold = []
     pred = []
+    missing_prediction_ids = []
     for example in gold_examples:
         gold.append(example.labels)
+        if example.id not in predictions:
+            missing_prediction_ids.append(example.id)
+            pred.append(["O"] * len(example.labels))
+            continue
         pred.append(predictions[example.id])
 
     report = compute_span_classification_report(gold, pred)
+    if missing_prediction_ids:
+        report["missing_prediction_ids"] = missing_prediction_ids
     print(json.dumps(report, indent=2))
 
 

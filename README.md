@@ -78,6 +78,12 @@ Install dependencies:
 pip install -r requirements.txt
 ```
 
+Or install as a local package:
+
+```bash
+pip install -e .
+```
+
 Run the baseline:
 
 ```bash
@@ -139,6 +145,8 @@ This script is optional and only runs when `OPENAI_API_KEY` is available.
 - BiLSTM training pipeline in PyTorch
 - transformer training pipeline structure
 - optional LLM comparison scaffold
+- package metadata for local install and test discovery
+- evaluation fallback for partial prediction files
 
 ## Current Results
 
@@ -193,3 +201,11 @@ This project demonstrates more than a standard text classification workflow:
 2. tune the BiLSTM to reduce false positives
 3. compare baseline vs BiLSTM vs transformer in the result table
 4. optionally score a small validation subset with an LLM for comparison
+
+## Testing
+
+Run the test suite with:
+
+```bash
+pytest
+```
