@@ -1,0 +1,3 @@
+{"id":"note-001","tokens":["Patient","reports","chest","pain","and","shortness","of","breath","."],"labels":["O","O","B-PROBLEM","I-PROBLEM","O","B-PROBLEM","I-PROBLEM","I-PROBLEM","O"]}
+{"id":"note-002","tokens":["Started","aspirin","after","abnormal","stress","test","."],"labels":["O","B-TREATMENT","O","B-TEST","I-TEST","I-TEST","O"]}
+{"id":"note-003","tokens":["CT","scan","showed","a","left","lower","lobe","opacity","."],"labels":["B-TEST","I-TEST","O","O","B-ANATOMY","I-ANATOMY","I-ANATOMY","B-PROBLEM","O"]}

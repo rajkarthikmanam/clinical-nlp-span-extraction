@@ -1,0 +1,2 @@
+{"id":"note-101","tokens":["Metformin","was","continued","for","type","2","diabetes","."],"labels":["B-TREATMENT","O","O","O","B-PROBLEM","I-PROBLEM","I-PROBLEM","O"]}
+{"id":"note-102","tokens":["MRI","of","the","brain","was","ordered","for","persistent","headache","."],"labels":["B-TEST","I-TEST","I-TEST","I-TEST","O","O","O","B-PROBLEM","I-PROBLEM","O"]}
