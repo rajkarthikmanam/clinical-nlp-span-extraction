@@ -15,17 +15,21 @@ This file tracks the current project state for the class report and presentation
 |---|---|---|---:|---:|---:|
 | Keyword baseline | full validation split | feature keyword matching | 0.497264 | 0.266662 | 0.347158 |
 | Linear token classifier (tuned decoder) | full prepared split | balanced logistic regression, feature-neighborhood decoder (`window=1`, `threshold=0.55`) | 0.402600 | 0.397303 | 0.399934 |
+| CRF sequence tagger | full prepared split | feature-aware sequence labeling, `c1=0.05`, `c2=0.1` | 0.719819 | 0.266173 | 0.388637 |
 | Linear token classifier | full prepared split | feature-aware logistic regression, balanced loss | 0.109523 | 0.647268 | 0.187346 |
 | Linear token classifier (positive-only) | full prepared split | feature-aware logistic regression, positive-only train | 0.097154 | 0.653440 | 0.169157 |
 | BiLSTM sequence tagger | full prepared split | 2 epochs, batch size 32 | 0.039358 | 0.857226 | 0.075260 |
+| BioClinicalBERT token classifier | smoke subset | 1 epoch, constrained decoding (`window=1`, `threshold=0.55`) | 0.536481 | 0.152253 | 0.237192 |
 | DistilBERT token classifier | smoke subset | 2 epochs, weighted loss, positive-only | 0.049604 | 0.626066 | 0.091925 |
 
 ## Interpretation
 
 - The tuned linear decoder is now the best overall result and the first learned model to beat the keyword baseline.
+- The CRF is the strongest structured sequence model so far and confirms that explicit BIO transition modeling helps a lot.
 - The untuned linear classifier confirms the model had signal, but raw argmax decoding produced too many false positives.
 - The BiLSTM and smoke-transformer runs both recover many spans, but they currently over-predict and lose precision.
-- The main technical lesson so far is that NBME needs both imbalance handling and constrained decoding around plausible candidate spans.
+- The BioClinicalBERT smoke run improves substantially over DistilBERT, which supports the idea that clinical-domain pretraining matters.
+- The main technical lesson so far is that NBME needs both domain-aware modeling and constrained decoding around plausible candidate spans.
 
 ## Qualitative Error Examples
 
@@ -64,8 +68,8 @@ This is the upside of the sequence model: it can connect broader semantics, but 
 
 ## Best Immediate Upgrade Path
 
-1. Add CRF-style or span-level decoding on top of the deep models.
-2. Run `Bio_ClinicalBERT` or another biomedical encoder on the full prepared split.
+1. Run `Bio_ClinicalBERT` on a larger split or longer schedule than the current smoke setup.
+2. Add CRF-style or span-level decoding on top of the deep models.
 3. Add a smaller learning rate sweep for the transformer.
 4. Add an optional zero-shot LLM comparison on `25-50` validation rows if API access is available.
 
@@ -75,6 +79,7 @@ For a course presentation, the clean story is:
 
 - the baseline establishes a strong lexical floor
 - the tuned linear model becomes the best overall system after precision-aware decoding
+- the CRF shows that structured sequence labeling is a strong fit for this task
 - the BiLSTM demonstrates that deep learning can recover broader context
-- the transformer smoke run proves the token-classification pipeline works end to end
+- the biomedical transformer smoke run proves domain-specific pretraining helps more than a generic transformer
 - class imbalance and span-boundary precision are the main reasons the deep models currently underperform

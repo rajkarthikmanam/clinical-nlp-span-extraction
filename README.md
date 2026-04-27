@@ -31,6 +31,7 @@ The repository now supports these paths directly:
 - keyword-style baseline based on feature text matching
 - feature-aware linear token classifier using logistic regression
 - tuned feature-constrained decoder for the linear model
+- CRF sequence tagger with feature-aware token templates
 - BiLSTM sequence tagging baseline in PyTorch
 - transformer token classification workflow for ClinicalBERT-style models
 - optional LLM subset comparison using prompt-based span extraction
@@ -47,6 +48,7 @@ clinical-nlp-span-extraction/
 |-- prepare_nbme_data.py
 |-- baseline_nbme.py
 |-- train_nbme_linear.py
+|-- train_nbme_crf.py
 |-- train_nbme_bilstm.py
 |-- train_nbme.py
 |-- llm_nbme_compare.py
@@ -115,6 +117,15 @@ python train_nbme_linear.py \
   --output-dir artifacts/nbme-linear
 ```
 
+Train the CRF sequence tagger:
+
+```bash
+python train_nbme_crf.py \
+  --train data/nbme/train.jsonl \
+  --valid data/nbme/valid.jsonl \
+  --output-dir artifacts/nbme-crf
+```
+
 Train the tuned linear model with a stricter feature-neighborhood decoder:
 
 ```bash
@@ -168,6 +179,7 @@ This script is optional and only runs when `OPENAI_API_KEY` is available.
 - baseline prediction pipeline
 - linear token-classification baseline in scikit-learn
 - constrained decoding that turns the linear model into a stronger precision-balanced system
+- CRF sequence labeling baseline with explicit BIO transition modeling
 - BiLSTM training pipeline in PyTorch
 - transformer training pipeline structure
 - optional LLM comparison scaffold
@@ -178,13 +190,15 @@ This script is optional and only runs when `OPENAI_API_KEY` is available.
 
 - keyword-style baseline validation F1: about `0.347`
 - tuned linear token classifier validation F1: about `0.400`
+- CRF sequence tagger validation F1: about `0.389`
 - unconstrained linear token classifier full-run validation F1: about `0.187`
 - BiLSTM full-run validation F1: about `0.075`
+- BioClinicalBERT smoke run validation F1: about `0.237`
 - weighted DistilBERT smoke run validation F1: about `0.092`
 
 The tuned linear model improves sharply because the classifier already finds many relevant tokens, but raw decoding predicts too many positives. Restricting candidate positions to feature-word neighborhoods restores precision without throwing away all of the model's contextual signal.
 
-The current transformer result comes from a small CPU-friendly smoke configuration with `distilbert-base-uncased`, weighted loss, and positive-only training rows. It is meant to prove the full token-classification path works end to end. The next practical step is to run a stronger biomedical encoder on a longer schedule.
+The BioClinicalBERT smoke run is a more meaningful transformer checkpoint than the earlier DistilBERT trial, but it is still only a short CPU-friendly run. It shows that domain-matched pretraining helps, while also making it clear that reproducing 2022 Kaggle-winning systems would require longer training, better validation, and likely ensemble-style modeling.
 
 ## Result Snapshot
 
@@ -192,17 +206,20 @@ The current transformer result comes from a small CPU-friendly smoke configurati
 |---|---|---:|---:|---:|
 | Keyword baseline | prepared validation split | 0.497 | 0.267 | 0.347 |
 | Linear token classifier (tuned decoder) | full prepared split, balanced logistic regression, feature-neighborhood decoding | 0.403 | 0.397 | 0.400 |
+| CRF sequence tagger | full prepared split, feature-aware sequence labeling | 0.720 | 0.266 | 0.389 |
 | Linear token classifier | full prepared split, class-weighted logistic regression | 0.110 | 0.647 | 0.187 |
 | Linear token classifier (positive-only train) | full prepared split, class-weighted logistic regression | 0.097 | 0.653 | 0.169 |
 | BiLSTM | full prepared split, 2 epochs | 0.039 | 0.857 | 0.075 |
+| BioClinicalBERT token classifier | smoke subset, 1 epoch, constrained decoding | 0.536 | 0.152 | 0.237 |
 | DistilBERT token classifier | smoke subset, weighted loss, positive-only | 0.050 | 0.626 | 0.092 |
 
 This is a believable project story for class and portfolio use because it shows:
 
 - a simple baseline that is not trivial to beat
 - a classical feature-based model that becomes the best overall system once decoding is tuned to the task
+- a structured CRF model that nearly matches the best score with much higher precision
 - a first deep learning model that over-predicts spans
-- a transformer path that needed explicit imbalance handling to avoid all-`O` collapse
+- a biomedical transformer path that improves substantially over the generic DistilBERT smoke run
 
 ## Report and Presentation Support
 
@@ -231,10 +248,10 @@ This project demonstrates more than a standard text classification workflow:
 
 ## Next Steps
 
-1. run a biomedical transformer on the full split
+1. run BioClinicalBERT on a larger split or longer schedule
 2. add CRF-style or span-level decoding on top of the deep models
 3. tune the BiLSTM to reduce false positives
-4. optionally score a small validation subset with an LLM for comparison
+4. optionally score a small validation subset with an LLM for comparison if API access becomes available
 
 ## Testing
 

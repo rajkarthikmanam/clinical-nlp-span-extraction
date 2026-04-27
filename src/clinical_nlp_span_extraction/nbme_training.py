@@ -41,6 +41,18 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Train only on rows with at least one gold span to reduce class imbalance.",
     )
+    parser.add_argument(
+        "--candidate-window",
+        type=int,
+        default=-1,
+        help="If non-negative, only decode positive spans on feature-word tokens and this many neighboring tokens.",
+    )
+    parser.add_argument(
+        "--positive-threshold",
+        type=float,
+        default=0.0,
+        help="Minimum probability required to decode B-SPAN or I-SPAN when constrained decoding is enabled.",
+    )
     return parser.parse_args()
 
 
@@ -106,6 +118,50 @@ def extract_spans_from_labels(tokens: list[str], labels: list[str], note_text: s
     if start is not None and end is not None:
         spans.append((start, end))
     return spans
+
+
+def decode_with_constraints(
+    probabilities,
+    id_to_label: dict[int, str],
+    tokens: list[str],
+    feature_text: str,
+    candidate_window: int,
+    positive_threshold: float,
+) -> list[str]:
+    if candidate_window < 0:
+        return [id_to_label[int(prob.argmax())] for prob in probabilities[: len(tokens)]]
+
+    feature_words = set(WORD_PATTERN.findall(feature_text.lower()))
+    token_lowers = [token.lower() for token in tokens]
+    feature_positions = {index for index, token in enumerate(token_lowers) if token in feature_words}
+    allowed_positions: set[int] = set()
+    for position in feature_positions:
+        start = max(0, position - candidate_window)
+        end = min(len(tokens), position + candidate_window + 1)
+        allowed_positions.update(range(start, end))
+
+    label_to_id = {label: index for index, label in id_to_label.items()}
+    b_index = label_to_id["B-SPAN"]
+    i_index = label_to_id["I-SPAN"]
+    decoded: list[str] = []
+    previous_label = "O"
+    for index, row_probs in enumerate(probabilities[: len(tokens)]):
+        if index not in allowed_positions:
+            label = "O"
+        else:
+            b_prob = float(row_probs[b_index])
+            i_prob = float(row_probs[i_index])
+            if max(b_prob, i_prob) < positive_threshold:
+                label = "O"
+            elif b_prob >= i_prob:
+                label = "B-SPAN"
+            else:
+                label = "I-SPAN"
+        if label == "I-SPAN" and previous_label == "O":
+            label = "B-SPAN"
+        decoded.append(label)
+        previous_label = label if label != "O" else "O"
+    return decoded
 
 
 def build_label_weights(tokenized_dataset: Dataset, num_labels: int) -> torch.Tensor:
@@ -199,22 +255,29 @@ def main() -> None:
     tokenizer.save_pretrained(args.output_dir)
 
     predictions, _, _ = trainer.predict(valid_tokenized)
-    predicted_label_ids = predictions.argmax(axis=-1)
-
     pred_spans = []
     gold_spans = []
     prediction_rows = []
     for row, aligned_label_ids, predicted_ids in zip(
         valid_rows,
         valid_tokenized["labels"],
-        predicted_label_ids,
+        predictions,
         strict=False,
     ):
-        note_labels = []
-        for gold_label_id, predicted_label_id in zip(aligned_label_ids, predicted_ids, strict=False):
+        token_probabilities = []
+        for gold_label_id, token_logits in zip(aligned_label_ids, predicted_ids, strict=False):
             if gold_label_id == -100:
                 continue
-            note_labels.append(id_to_label[int(predicted_label_id)])
+            logits = torch.tensor(token_logits, dtype=torch.float32)
+            token_probabilities.append(torch.softmax(logits, dim=-1).tolist())
+        note_labels = decode_with_constraints(
+            probabilities=token_probabilities,
+            id_to_label=id_to_label,
+            tokens=row["tokens"],
+            feature_text=row["feature_text"],
+            candidate_window=args.candidate_window,
+            positive_threshold=args.positive_threshold,
+        )
         predicted_spans = extract_spans_from_labels(row["tokens"], note_labels, row["note_text"])
         pred_spans.append(predicted_spans)
         gold_spans.append([tuple(span) for span in row["spans"]])
@@ -238,6 +301,8 @@ def main() -> None:
         "batch_size": args.batch_size,
         "learning_rate": args.learning_rate,
         "max_length": args.max_length,
+        "candidate_window": args.candidate_window,
+        "positive_threshold": args.positive_threshold,
         "metrics": metrics,
     }
     (output_dir / "run_summary.json").write_text(json.dumps(run_summary, indent=2), encoding="utf-8")
