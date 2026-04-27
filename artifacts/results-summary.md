@@ -14,12 +14,15 @@ This file tracks the current project state for the class report and presentation
 | Method | Data scope | Main configuration | Precision | Recall | F1 |
 |---|---|---|---:|---:|---:|
 | Keyword baseline | full validation split | feature keyword matching | 0.497264 | 0.266662 | 0.347158 |
+| Linear token classifier | full prepared split | feature-aware logistic regression, balanced loss | 0.109523 | 0.647268 | 0.187346 |
+| Linear token classifier (positive-only) | full prepared split | feature-aware logistic regression, positive-only train | 0.097154 | 0.653440 | 0.169157 |
 | BiLSTM sequence tagger | full prepared split | 2 epochs, batch size 32 | 0.039358 | 0.857226 | 0.075260 |
 | DistilBERT token classifier | smoke subset | 2 epochs, weighted loss, positive-only | 0.049604 | 0.626066 | 0.091925 |
 
 ## Interpretation
 
 - The keyword baseline is currently the strongest score because it is conservative and precise on direct lexical overlap.
+- The linear token classifier provides the strongest learned baseline so far and clearly outperforms the BiLSTM and smoke-scale transformer on F1.
 - The BiLSTM and smoke-transformer runs both recover many spans, but they currently over-predict and lose precision.
 - The main technical lesson so far is that NBME has strong class imbalance, so weighted loss or sampling strategy is necessary.
 
@@ -70,6 +73,7 @@ This is the upside of the sequence model: it can connect broader semantics, but 
 For a course presentation, the clean story is:
 
 - the baseline establishes a strong lexical floor
+- the linear model shows that classical token-level features are a strong intermediate baseline
 - the BiLSTM demonstrates that deep learning can recover broader context
 - the transformer smoke run proves the token-classification pipeline works end to end
 - class imbalance and span-boundary precision are the main reasons the learned models currently underperform

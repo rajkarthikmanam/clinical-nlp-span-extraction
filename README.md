@@ -29,6 +29,7 @@ The project uses the competition-style character-level micro F1 metric for evalu
 The repository now supports these paths directly:
 
 - keyword-style baseline based on feature text matching
+- feature-aware linear token classifier using logistic regression
 - BiLSTM sequence tagging baseline in PyTorch
 - transformer token classification workflow for ClinicalBERT-style models
 - optional LLM subset comparison using prompt-based span extraction
@@ -44,6 +45,7 @@ clinical-nlp-span-extraction/
 |-- tests/
 |-- prepare_nbme_data.py
 |-- baseline_nbme.py
+|-- train_nbme_linear.py
 |-- train_nbme_bilstm.py
 |-- train_nbme.py
 |-- llm_nbme_compare.py
@@ -103,6 +105,15 @@ python train_nbme_bilstm.py \
   --output-dir artifacts/nbme-bilstm
 ```
 
+Train the linear token classifier:
+
+```bash
+python train_nbme_linear.py \
+  --train data/nbme/train.jsonl \
+  --valid data/nbme/valid.jsonl \
+  --output-dir artifacts/nbme-linear
+```
+
 Quick CPU smoke test:
 
 ```bash
@@ -142,6 +153,7 @@ This script is optional and only runs when `OPENAI_API_KEY` is available.
 - deterministic train/validation split
 - competition-style micro F1 at character span level
 - baseline prediction pipeline
+- linear token-classification baseline in scikit-learn
 - BiLSTM training pipeline in PyTorch
 - transformer training pipeline structure
 - optional LLM comparison scaffold
@@ -151,6 +163,7 @@ This script is optional and only runs when `OPENAI_API_KEY` is available.
 ## Current Results
 
 - keyword-style baseline validation F1: about `0.347`
+- linear token classifier full-run validation F1: about `0.187`
 - BiLSTM full-run validation F1: about `0.075`
 - weighted DistilBERT smoke run validation F1: about `0.092`
 
@@ -161,12 +174,15 @@ The current transformer result comes from a small CPU-friendly smoke configurati
 | Method | Split / setup | Precision | Recall | F1 |
 |---|---|---:|---:|---:|
 | Keyword baseline | prepared validation split | 0.497 | 0.267 | 0.347 |
+| Linear token classifier | full prepared split, class-weighted logistic regression | 0.110 | 0.647 | 0.187 |
+| Linear token classifier (positive-only train) | full prepared split, class-weighted logistic regression | 0.097 | 0.653 | 0.169 |
 | BiLSTM | full prepared split, 2 epochs | 0.039 | 0.857 | 0.075 |
 | DistilBERT token classifier | smoke subset, weighted loss, positive-only | 0.050 | 0.626 | 0.092 |
 
 This is a believable project story for class and portfolio use because it shows:
 
 - a simple baseline that is not trivial to beat
+- a classical feature-based model that improves over the deep baselines but still struggles with precision
 - a first deep learning model that over-predicts spans
 - a transformer path that needed explicit imbalance handling to avoid all-`O` collapse
 
