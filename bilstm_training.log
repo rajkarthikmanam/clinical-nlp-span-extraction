@@ -1,0 +1,24 @@
+{
+  "epoch": 1,
+  "train_loss": 0.87175,
+  "precision": 0.032138,
+  "recall": 0.762983,
+  "f1": 0.061678,
+  "counts": {
+    "true_positive": 32764,
+    "false_positive": 986719,
+    "false_negative": 10178
+  }
+}
+{
+  "epoch": 2,
+  "train_loss": 0.710297,
+  "precision": 0.036191,
+  "recall": 0.814773,
+  "f1": 0.069303,
+  "counts": {
+    "true_positive": 34988,
+    "false_positive": 931784,
+    "false_negative": 7954
+  }
+}

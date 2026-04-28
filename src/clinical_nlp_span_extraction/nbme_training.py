@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 import re
 
+import numpy as np
 from datasets import Dataset
 import torch
 from torch import nn
@@ -28,10 +29,18 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--train", required=True, help="Prepared train.jsonl.")
     parser.add_argument("--valid", required=True, help="Prepared valid.jsonl.")
     parser.add_argument("--output-dir", required=True, help="Directory to save artifacts.")
-    parser.add_argument("--model-name", default="emilyalsentzer/Bio_ClinicalBERT")
-    parser.add_argument("--epochs", type=int, default=2)
+    parser.add_argument(
+        "--model-name",
+        action="append",
+        default=["emilyalsentzer/Bio_ClinicalBERT"],
+        help="Hugging Face model name. Repeat this argument to evaluate multiple models.",
+    )
+    parser.add_argument("--epochs", type=int, default=4)
     parser.add_argument("--batch-size", type=int, default=4)
     parser.add_argument("--learning-rate", type=float, default=2e-5)
+    parser.add_argument("--weight-decay", type=float, default=0.01)
+    parser.add_argument("--warmup-ratio", type=float, default=0.1, help="Warmup ratio for the transformer optimizer.")
+    parser.add_argument("--gradient-accumulation-steps", type=int, default=1, help="Gradient accumulation to increase effective batch size.")
     parser.add_argument("--max-length", type=int, default=512)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--limit-train", type=int, default=0, help="Optional row limit for training.")
@@ -76,6 +85,8 @@ def tokenize_batch(batch: dict, tokenizer, label_to_id: dict[str, int], max_leng
     )
 
     aligned_labels = []
+    word_ids_batch = []
+    sequence_ids_batch = []
     for row_index, labels in enumerate(batch["labels"]):
         word_ids = tokenized.word_ids(batch_index=row_index)
         sequence_ids = tokenized.sequence_ids(batch_index=row_index)
@@ -92,8 +103,12 @@ def tokenize_batch(batch: dict, tokenizer, label_to_id: dict[str, int], max_leng
             previous_word_idx = word_idx
 
         aligned_labels.append(label_ids)
+        word_ids_batch.append(word_ids)
+        sequence_ids_batch.append(sequence_ids)
 
     tokenized["labels"] = aligned_labels
+    tokenized["word_ids"] = word_ids_batch
+    tokenized["sequence_ids"] = sequence_ids_batch
     return tokenized
 
 
@@ -179,6 +194,35 @@ def build_label_weights(tokenized_dataset: Dataset, num_labels: int) -> torch.Te
     return torch.tensor(weights, dtype=torch.float32)
 
 
+def compute_metrics(eval_pred, valid_rows, id_to_label, candidate_window, positive_threshold):
+    logits, label_ids = eval_pred
+    predictions = np.argmax(logits, axis=-1)
+
+    pred_spans = []
+    gold_spans = []
+    for row, aligned_label_ids, predicted_ids in zip(valid_rows, label_ids, predictions, strict=False):
+        token_probabilities = []
+        for gold_label_id, token_logits in zip(aligned_label_ids, predicted_ids, strict=False):
+            if gold_label_id == -100:
+                continue
+            logits_array = np.array(token_logits, dtype=np.float64)
+            exp_logits = np.exp(logits_array - np.max(logits_array))
+            token_probabilities.append((exp_logits / exp_logits.sum()).tolist())
+
+        note_labels = decode_with_constraints(
+            probabilities=token_probabilities,
+            id_to_label=id_to_label,
+            tokens=row["tokens"],
+            feature_text=row["feature_text"],
+            candidate_window=candidate_window,
+            positive_threshold=positive_threshold,
+        )
+        pred_spans.append(extract_spans_from_labels(row["tokens"], note_labels, row["note_text"]))
+        gold_spans.append([tuple(span) for span in row["spans"]])
+
+    return micro_f1_from_spans(gold_spans, pred_spans)
+
+
 class WeightedTokenTrainer(Trainer):
     def __init__(self, *args, label_weights: torch.Tensor | None = None, **kwargs):
         super().__init__(*args, **kwargs)
@@ -196,22 +240,19 @@ class WeightedTokenTrainer(Trainer):
         return (loss, outputs) if return_outputs else loss
 
 
-def main() -> None:
-    args = parse_args()
-    set_seed(args.seed)
-
-    train_rows = read_jsonl(args.train, args.limit_train)
-    valid_rows = read_jsonl(args.valid, args.limit_valid)
-    if args.positive_only:
-        train_rows = [row for row in train_rows if row["spans"]]
-
-    labels = ["O", "B-SPAN", "I-SPAN"]
-    label_to_id = {label: idx for idx, label in enumerate(labels)}
-    id_to_label = {idx: label for label, idx in label_to_id.items()}
-
-    tokenizer = AutoTokenizer.from_pretrained(args.model_name)
+def train_model_for_name(
+    model_name: str,
+    args: argparse.Namespace,
+    train_rows: list[dict],
+    valid_rows: list[dict],
+    labels: list[str],
+    label_to_id: dict[str, int],
+    id_to_label: dict[int, str],
+    output_dir: Path,
+) -> dict:
+    tokenizer = AutoTokenizer.from_pretrained(model_name, use_fast=True)
     model = AutoModelForTokenClassification.from_pretrained(
-        args.model_name,
+        model_name,
         num_labels=len(labels),
         id2label=id_to_label,
         label2id=label_to_id,
@@ -230,15 +271,21 @@ def main() -> None:
     label_weights = build_label_weights(train_tokenized, len(labels))
 
     training_args = TrainingArguments(
-        output_dir=args.output_dir,
+        output_dir=str(output_dir),
         learning_rate=args.learning_rate,
         per_device_train_batch_size=args.batch_size,
         per_device_eval_batch_size=args.batch_size,
         num_train_epochs=args.epochs,
-        weight_decay=0.01,
+        weight_decay=args.weight_decay,
+        warmup_ratio=args.warmup_ratio,
+        gradient_accumulation_steps=args.gradient_accumulation_steps,
         eval_strategy="epoch",
         save_strategy="epoch",
-        logging_steps=20,
+        logging_steps=50,
+        save_total_limit=2,
+        load_best_model_at_end=True,
+        metric_for_best_model="f1",
+        greater_is_better=True,
         report_to="none",
     )
 
@@ -249,12 +296,20 @@ def main() -> None:
         eval_dataset=valid_tokenized,
         data_collator=DataCollatorForTokenClassification(tokenizer),
         label_weights=label_weights,
+        compute_metrics=lambda eval_pred: compute_metrics(
+            eval_pred,
+            valid_rows,
+            id_to_label,
+            args.candidate_window,
+            args.positive_threshold,
+        ),
     )
     trainer.train()
-    trainer.save_model(args.output_dir)
-    tokenizer.save_pretrained(args.output_dir)
+    trainer.save_model(output_dir)
+    tokenizer.save_pretrained(output_dir)
 
     predictions, _, _ = trainer.predict(valid_tokenized)
+
     pred_spans = []
     gold_spans = []
     prediction_rows = []
@@ -284,29 +339,71 @@ def main() -> None:
         prediction_rows.append({"id": row["id"], "predicted_spans": predicted_spans})
 
     metrics = micro_f1_from_spans(gold_spans, pred_spans)
-    output_dir = Path(args.output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
     (output_dir / "valid_predictions.jsonl").write_text(
         "\n".join(json.dumps(row) for row in prediction_rows),
         encoding="utf-8",
     )
-    (output_dir / "metrics.json").write_text(json.dumps(metrics, indent=2), encoding="utf-8")
     run_summary = {
         "train_rows": len(train_rows),
         "valid_rows": len(valid_rows),
         "positive_only": args.positive_only,
         "label_weights": [round(float(weight), 6) for weight in label_weights.tolist()],
-        "model_name": args.model_name,
+        "model_name": model_name,
         "epochs": args.epochs,
         "batch_size": args.batch_size,
         "learning_rate": args.learning_rate,
+        "weight_decay": args.weight_decay,
         "max_length": args.max_length,
         "candidate_window": args.candidate_window,
         "positive_threshold": args.positive_threshold,
         "metrics": metrics,
     }
     (output_dir / "run_summary.json").write_text(json.dumps(run_summary, indent=2), encoding="utf-8")
-    print(json.dumps(metrics, indent=2))
+    (output_dir / "metrics.json").write_text(json.dumps(metrics, indent=2), encoding="utf-8")
+    print(json.dumps(run_summary, indent=2))
+    return run_summary
+
+
+def main() -> None:
+    args = parse_args()
+    set_seed(args.seed)
+
+    train_rows = read_jsonl(args.train, args.limit_train)
+    valid_rows = read_jsonl(args.valid, args.limit_valid)
+    if args.positive_only:
+        train_rows = [row for row in train_rows if row["spans"]]
+
+    labels = ["O", "B-SPAN", "I-SPAN"]
+    label_to_id = {label: idx for idx, label in enumerate(labels)}
+    id_to_label = {idx: label for label, idx in label_to_id.items()}
+
+    output_base = Path(args.output_dir)
+    output_base.mkdir(parents=True, exist_ok=True)
+    model_summaries = []
+
+    for model_name in args.model_name:
+        model_dir = output_base if len(args.model_name) == 1 else output_base / model_name.replace("/", "-")
+        model_dir.mkdir(parents=True, exist_ok=True)
+        summary = train_model_for_name(
+            model_name=model_name,
+            args=args,
+            train_rows=train_rows,
+            valid_rows=valid_rows,
+            labels=labels,
+            label_to_id=label_to_id,
+            id_to_label=id_to_label,
+            output_dir=model_dir,
+        )
+        model_summaries.append(summary)
+
+    if len(model_summaries) > 1:
+        (output_base / "all_model_summaries.json").write_text(
+            json.dumps(model_summaries, indent=2),
+            encoding="utf-8",
+        )
+        print(json.dumps({"model_summaries": model_summaries}, indent=2))
+    else:
+        print(json.dumps(model_summaries[0], indent=2))
 
 
 if __name__ == "__main__":

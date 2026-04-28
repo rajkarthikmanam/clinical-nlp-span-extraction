@@ -1,0 +1,59 @@
+╔════════════════════════════════════════════════════════════════════════╗
+║         NBME CLINICAL NLP SPAN EXTRACTION - FINAL RESULTS              ║
+╚════════════════════════════════════════════════════════════════════════╝
+
+┌─ MODEL COMPARISON ──────────────────────────────────────────────────────┐
+│                                                                         │
+│  Model 1: Baseline (Simple Pattern Matching)                           │
+│  ────────────────────────────────────────────                          │
+│    • Precision:  0.5009                                                │
+│    • Recall:     0.2782                                                │
+│    • F1 Score:   0.3577  ✓ BEST                                        │
+│    • True Positives:   41,540                                          │
+│    • False Positives:  41,398                                          │
+│    • False Negatives: 107,787                                          │
+│                                                                         │
+│  Model 2: CRF (Conditional Random Field)                               │
+│  ────────────────────────────────────────                              │
+│    • Precision:  0.3429                                                │
+│    • Recall:     0.0948                                                │
+│    • F1 Score:   0.1485                                                │
+│    • True Positives:    4,069                                          │
+│    • False Positives:   7,799                                          │
+│    • False Negatives:  38,873                                          │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
+
+SUMMARY:
+  • Best Performing Model: Baseline (Pattern Matching)
+  • Top F1 Score: 0.3577
+  • Performance Improvement: Baseline outperformed CRF by 140.9%
+
+DATASET:
+  • Validation Samples: 3,115
+  • Total Gold Spans: 3,087
+  • Dataset: Clinical patient notes from NBME
+
+═════════════════════════════════════════════════════════════════════════
+
+TECHNICAL DETAILS:
+
+1. BASELINE MODEL
+   - Method: Regex-based pattern matching
+   - Features: Extracts clinical terminology patterns
+   - Training Time: < 1 second
+   - Scalability: Excellent (pure regex matching)
+
+2. CRF MODEL  
+   - Method: Conditional Random Field (linear-chain with sklearn-crfsuite)
+   - Features: BIO tags, word forms, character n-grams, POS features
+   - Training Time: ~5 minutes
+   - Hyperparameters: c1=0.05, c2=0.05, max_iterations=10
+
+═════════════════════════════════════════════════════════════════════════
+
+PRESENTATION SCREENSHOTS AVAILABLE:
+  • See results_and_editing.ipynb for inline results display
+  • Run cells to show F1 scores and metrics in notebook
+  • Output format: JSON metrics with P/R/F1 and confusion counts
+

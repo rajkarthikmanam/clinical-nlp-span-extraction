@@ -12,7 +12,6 @@ That makes the project a strong fit for:
 - transformers
 - evaluation-heavy NLP
 - healthcare AI
-- portfolio and resume use
 
 ## Competition Context
 
@@ -22,7 +21,7 @@ The current implementation is adapted to the Kaggle NBME clinical notes setup, w
 - a `patient note`
 - gold span locations inside the note
 
-The project uses the competition-style character-level micro F1 metric for evaluation.
+The project uses the competition-style character-level micro F1 metric for evaluation, and it now includes a stronger transformer training pipeline with validation-based checkpoint selection to support competitive Kaggle submissions.
 
 ## Methods Implemented
 
@@ -156,8 +155,19 @@ Train the transformer token-classification model:
 python train_nbme.py \
   --train data/nbme/train.jsonl \
   --valid data/nbme/valid.jsonl \
-  --output-dir artifacts/nbme-clinicalbert
+  --output-dir artifacts/nbme-transformer \
+  --model-name emilyalsentzer/Bio_ClinicalBERT \
+  --model-name microsoft/BiomedNLP-PubMedBERT-base-uncased-abstract \
+  --epochs 4 \
+  --batch-size 4 \
+  --learning-rate 2e-5 \
+  --warmup-ratio 0.1 \
+  --gradient-accumulation-steps 2 \
+  --candidate-window 1 \
+  --positive-threshold 0.45
 ```
+
+The updated transformer training pipeline now evaluates span F1 directly on the validation set and selects the best checkpoint by validation F1. When more than one `--model-name` is specified, separate model artifact folders are created under the output directory.
 
 Optional LLM comparison on a small validation subset:
 
@@ -252,6 +262,7 @@ This project demonstrates more than a standard text classification workflow:
 2. add CRF-style or span-level decoding on top of the deep models
 3. tune the BiLSTM to reduce false positives
 4. optionally score a small validation subset with an LLM for comparison if API access becomes available
+5. combine the strong transformer path with the keyword baseline and optional LLM predictions for ensemble-style output, which is the best path toward a high-ranking Kaggle submission
 
 ## Testing
 
